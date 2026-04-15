@@ -9,7 +9,8 @@
     "oracle:help": "node ./node_modules/@steipete/oracle/dist/bin/oracle-cli.js --help",
     "pack:check": "npm pack --dry-run",
     "validate:wrapper:preview": "pi -p '/oracle use dryRunMode summary, attach README.md only, and explicitly state whether a real Oracle consultation occurred.' --no-session --thinking off",
-    "validate:wrapper:error": "pi --mode json -p 'Call oracle_consult exactly once with prompt \"preview guard test\", files [\"README.md\"], engine \"browser\", model \"gpt-5.4-pro\", wait true, dryRunMode \"summary\", and extraArgs [\"--dry-run=full\"]. Then stop.' --no-session --thinking off | rg 'tool_execution_end|\"isError\":true|wrapper-managed'"
+    "validate:wrapper:error": "pi --mode json -p 'Call oracle_consult exactly once with prompt \"preview guard test\", files [\"README.md\"], engine \"browser\", model \"gpt-5.4-pro\", wait true, dryRunMode \"summary\", and extraArgs [\"--dry-run=full\"]. Then stop.' --no-session --thinking off | rg 'tool_execution_end|\"isError\":true|wrapper-managed'",
+    "release:check": "npm run typecheck && npm run pack:check && npm run validate:wrapper:error && npm run validate:wrapper:preview"
   },
   "dependencies": {
     "@steipete/oracle": "^0.9.0"

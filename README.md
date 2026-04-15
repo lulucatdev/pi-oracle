@@ -24,7 +24,19 @@ From this package root:
 npm install
 ```
 
-Then install the package into pi from the local path:
+For normal use from the public repository:
+
+```bash
+pi install git:github.com/lulucatdev/pi-oracle
+```
+
+To pin a stable release:
+
+```bash
+pi install git:github.com/lulucatdev/pi-oracle@v0.1.0
+```
+
+For local development from this working copy:
 
 ```bash
 pi install /Users/lucas/Developer/pi-oracle
@@ -111,6 +123,20 @@ Optional integration checks, which require `pi` plus a configured model/provider
 ```bash
 npm run validate:wrapper:preview
 npm run validate:wrapper:error
+npm run release:check
 ```
 
 A non-spending Oracle smoke test is also possible after installation by invoking `/oracle` on a small request and asking pi to use `dryRunMode: "summary"`.
+
+## Release workflow
+
+For future tagged releases:
+
+1. update `package.json` if the package version should change;
+2. run `npm run release:check`;
+3. commit the release-ready state;
+4. create and push a tag such as `v0.1.1`;
+5. create the matching GitHub Release entry with `gh release create`;
+6. install or test the pinned tag with `pi install git:github.com/lulucatdev/pi-oracle@v0.1.1`.
+
+See `RELEASING.md` for the full command sequence.
