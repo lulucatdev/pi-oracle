@@ -33,7 +33,7 @@ pi install git:github.com/lulucatdev/pi-oracle
 To pin a stable release:
 
 ```bash
-pi install git:github.com/lulucatdev/pi-oracle@v0.1.0
+pi install git:github.com/lulucatdev/pi-oracle@v0.1.1
 ```
 
 For local development from this working copy:
