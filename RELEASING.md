@@ -18,6 +18,12 @@ This repository is installable through pi directly from git. The standard releas
    npm run release:check
    ```
 
+   This now includes:
+   - `npm run validate:wrapper:preview`
+   - `npm run validate:wrapper:error`
+   - `npm run validate:wrapper:retrieve`
+   - `npm run validate:wrapper:background`
+
 3. Review the pending diff and commit it:
 
    ```bash
@@ -51,3 +57,4 @@ This repository is installable through pi directly from git. The standard releas
 - `pi update` refreshes unpinned git installs such as `git:github.com/lulucatdev/pi-oracle`.
 - Pinned installs such as `git:github.com/lulucatdev/pi-oracle@vX.Y.Z` are intentionally skipped by `pi update`.
 - `.pi/` and `node_modules/` are ignored by git and should remain untracked.
+- `.pi/oracle/` stores local Oracle result bodies and metadata; treat it as ephemeral runtime state, not release content.

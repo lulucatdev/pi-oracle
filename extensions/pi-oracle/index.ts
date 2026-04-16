@@ -2,17 +2,36 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type, type Static } from "@sinclair/typebox";
 
+import { startOracleBackgroundMonitor } from "./background.js";
+import {
+  createOracleResponseId,
+  ensureProjectOracleHome,
+  oracleStorePaths,
+  readOracleRecord,
+  readOracleSection,
+  writeOracleAnswer,
+  writeOracleLogs,
+  writeOracleMetadata,
+  type StoredOracleMetadata,
+  type StoredOracleRecord,
+  type StoredOracleStatus,
+} from "./store.js";
+
 const DEFAULT_ENGINE = "browser" as const;
 const DEFAULT_MODEL = "gpt-5.4-pro";
+const DEFAULT_BROWSER_COOKIE_WAIT = "5s";
 const DEFAULT_AUTO_REATTACH_DELAY = "5s";
 const DEFAULT_AUTO_REATTACH_INTERVAL = "3s";
 const DEFAULT_AUTO_REATTACH_TIMEOUT = "60s";
-const MAX_CONTENT_CHARS = 24000;
+const MAX_INLINE_PREVIEW_CHARS = 4000;
+const MAX_INLINE_PREVIEW_CHARS_DRY_RUN = 12000;
 const oracleRequire = createRequire(import.meta.url);
+const oracleRunnerPath = fileURLToPath(new URL("./run-oracle.mjs", import.meta.url));
 
 const DISALLOWED_EXTRA_ARGS = new Set([
   "--engine",
@@ -57,6 +76,7 @@ const DISALLOWED_EXTRA_ARGS = new Set([
   "--browser-keep-browser",
   "--browser-manual-login",
   "--browser-model-strategy",
+  "--browser-cookie-wait",
   "--browser-auto-reattach-delay",
   "--browser-auto-reattach-interval",
   "--browser-auto-reattach-timeout",
@@ -143,6 +163,12 @@ const oracleConsultSchema = Type.Object({
       description: "ChatGPT model picker strategy: select, current, or ignore.",
     }),
   ),
+  browserCookieWait: Type.Optional(
+    Type.String({
+      description:
+        "Browser-mode cookie sync grace period before Oracle gives up on Chrome cookie reuse. Defaults to 5s.",
+    }),
+  ),
   verbose: Type.Optional(
     Type.Boolean({
       description: "Enable verbose Oracle logging.",
@@ -155,12 +181,36 @@ const oracleConsultSchema = Type.Object({
   ),
 });
 
+const getOracleContentSchema = Type.Object({
+  responseId: Type.String({
+    description: "The stored Oracle response id returned by oracle_consult.",
+  }),
+  section: Type.Optional(
+    Type.Union([
+      Type.Literal("answer"),
+      Type.Literal("logs"),
+      Type.Literal("metadata"),
+      Type.Literal("all"),
+    ], {
+      description: "Which stored section to retrieve: answer, logs, metadata, or all. Defaults to all.",
+    }),
+  ),
+});
+
 type OracleConsultParams = Static<typeof oracleConsultSchema>;
+type GetOracleContentParams = Static<typeof getOracleContentSchema>;
+type OracleRunStatus = StoredOracleStatus | "dry-run";
 
 interface OracleCommand {
   command: string;
-  argsPrefix: string[];
+  cliPath: string;
   source: string;
+}
+
+interface PersistedOracleResult {
+  responseId: string;
+  storedSections: string[];
+  storeDir: string;
 }
 
 function resolveOracleCommand(): OracleCommand {
@@ -168,7 +218,7 @@ function resolveOracleCommand(): OracleCommand {
     const bundledCli = oracleRequire.resolve("@steipete/oracle/dist/bin/oracle-cli.js");
     return {
       command: process.execPath,
-      argsPrefix: [bundledCli],
+      cliPath: bundledCli,
       source: "package dependency",
     };
   } catch (error) {
@@ -226,15 +276,23 @@ function stripAnsi(text: string): string {
     .replace(/\u001b\][^\u0007]*(\u0007|\u001b\\)/g, "");
 }
 
-function truncateForContext(text: string): { text: string; truncated: boolean } {
-  if (text.length <= MAX_CONTENT_CHARS) {
+function truncateText(text: string, maxChars: number): { text: string; truncated: boolean } {
+  if (text.length <= maxChars) {
     return { text, truncated: false };
   }
 
   return {
-    text: `${text.slice(0, MAX_CONTENT_CHARS)}\n\n[truncated after ${MAX_CONTENT_CHARS} characters]`,
+    text: `${text.slice(0, maxChars)}\n\n[truncated after ${maxChars} characters]`,
     truncated: true,
   };
+}
+
+function shellQuote(value: string): string {
+  return JSON.stringify(value);
+}
+
+function buildOracleReattachCommand(sessionId: string, oracleHomeDir: string): string {
+  return `env ORACLE_HOME_DIR=${shellQuote(oracleHomeDir)} oracle session ${sessionId}`;
 }
 
 function extractSessionId(text: string): string | undefined {
@@ -280,7 +338,10 @@ function buildOracleArgs(params: OracleConsultParams, outputPath: string): strin
   }
 
   if (engine === "browser") {
+    const browserCookieWait = params.browserCookieWait?.trim() || DEFAULT_BROWSER_COOKIE_WAIT;
     args.push(
+      "--browser-cookie-wait",
+      browserCookieWait,
       "--browser-auto-reattach-delay",
       DEFAULT_AUTO_REATTACH_DELAY,
       "--browser-auto-reattach-interval",
@@ -316,8 +377,22 @@ function buildOracleArgs(params: OracleConsultParams, outputPath: string): strin
   return args;
 }
 
-function formatResultContent(input: {
-  bodyText: string;
+function inlinePreviewLabel(status: OracleRunStatus, previewRequested: boolean): string {
+  if (status === "dry-run") {
+    return "Oracle preview";
+  }
+  if (status === "background") {
+    return "Oracle startup preview";
+  }
+  if (status === "failed") {
+    return previewRequested ? "Oracle preview logs" : "Oracle failure preview";
+  }
+  return "Oracle answer preview";
+}
+
+function formatInlineResultContent(input: {
+  responseId?: string;
+  previewText: string;
   sessionId?: string;
   engine: string;
   model: string;
@@ -326,18 +401,19 @@ function formatResultContent(input: {
   truncated: boolean;
   exitCode?: number;
   previewRequested: boolean;
-  status: "completed" | "background" | "failed" | "dry-run";
+  status: OracleRunStatus;
+  storedSections?: string[];
 }): string {
   const heading =
     input.status === "failed" && input.previewRequested
       ? `Oracle dry run failed (${input.dryRunMode}).`
       : input.status === "dry-run"
-      ? `Oracle dry run completed (${input.dryRunMode}).`
-      : input.status === "background"
-        ? "Oracle consultation started in background."
-        : input.status === "failed"
-          ? "Oracle consultation failed."
-          : "Oracle consultation completed.";
+        ? `Oracle dry run completed (${input.dryRunMode}).`
+        : input.status === "background"
+          ? "Oracle consultation started in background."
+          : input.status === "failed"
+            ? "Oracle consultation failed."
+            : "Oracle consultation completed.";
 
   const lines = [
     heading,
@@ -346,33 +422,138 @@ function formatResultContent(input: {
     `Wait: ${input.wait ? "attached" : "detached"}`,
   ];
 
+  if (input.responseId) {
+    lines.push(`Response ID: ${input.responseId}`);
+  }
   if (input.sessionId) {
     lines.push(`Session: ${input.sessionId}`);
   }
   if (typeof input.exitCode === "number") {
     lines.push(`Exit code: ${input.exitCode}`);
   }
-  if (input.status === "background" && input.sessionId) {
-    lines.push(`Reattach with: oracle session ${input.sessionId}`);
+  if (input.storedSections && input.storedSections.length > 0) {
+    lines.push(`Stored sections: ${input.storedSections.join(", ")}`);
   }
   if (input.truncated) {
-    lines.push("Note: the Oracle output was truncated before it was inserted into the tool result.");
+    lines.push("Note: only a compact preview was inserted into the tool result.");
   }
 
-  const bodyLabel =
-    input.status === "failed" && input.previewRequested
-      ? "Oracle preview logs"
-      : input.status === "dry-run"
-      ? "Oracle preview"
-      : input.status === "background"
-        ? "Oracle startup logs"
-        : input.status === "failed"
-          ? "Oracle logs"
-          : "Oracle answer";
-  return `${lines.join("\n")}\n\n${bodyLabel}:\n\n${input.bodyText}`.trim();
+  return `${lines.join("\n")}\n\n${inlinePreviewLabel(input.status, input.previewRequested)}:\n\n${input.previewText}`.trim();
+}
+
+function availableSections(record: StoredOracleRecord): string[] {
+  const sections = ["metadata"];
+  if (record.answer !== undefined) {
+    sections.push("answer");
+  }
+  if (record.logs !== undefined) {
+    sections.push("logs");
+  }
+  return sections;
+}
+
+async function persistOracleResult(input: {
+  cwd: string;
+  prompt: string;
+  files: string[];
+  wait: boolean;
+  engine: string;
+  model: string;
+  status: StoredOracleStatus;
+  sessionId?: string;
+  exitCode?: number;
+  killed?: boolean;
+  command: string;
+  args: string[];
+  oracleHomeDir: string;
+  answer?: string;
+  logs?: string;
+}): Promise<PersistedOracleResult> {
+  const responseId = createOracleResponseId();
+  const now = new Date().toISOString();
+  const metadata: StoredOracleMetadata = {
+    id: responseId,
+    status: input.status,
+    createdAt: now,
+    updatedAt: now,
+    completedAt: input.status === "background" ? undefined : now,
+    engine: input.engine,
+    model: input.model,
+    prompt: input.prompt,
+    files: input.files,
+    cwd: input.cwd,
+    wait: input.wait,
+    sessionId: input.sessionId,
+    reattachCommand: input.sessionId
+      ? buildOracleReattachCommand(input.sessionId, input.oracleHomeDir)
+      : undefined,
+    exitCode: input.exitCode,
+    killed: input.killed,
+    command: input.command,
+    args: input.args,
+    oracleHomeDir: input.oracleHomeDir,
+  };
+
+  const paths = await writeOracleMetadata(input.cwd, metadata);
+  await writeOracleAnswer(input.cwd, responseId, input.answer);
+  await writeOracleLogs(input.cwd, responseId, input.logs);
+
+  const storedSections = ["metadata"];
+  if (input.answer !== undefined) {
+    storedSections.push("answer");
+  }
+  if (input.logs !== undefined) {
+    storedSections.push("logs");
+  }
+
+  return {
+    responseId,
+    storedSections,
+    storeDir: paths.responseDir,
+  };
 }
 
 export default function piOracle(pi: ExtensionAPI) {
+  pi.registerTool({
+    name: "get_oracle_content",
+    label: "Get Oracle Content",
+    description: "Retrieve stored Oracle result content by response id.",
+    promptSnippet:
+      "Use after oracle_consult when a stored Oracle responseId must be expanded into full answer, logs, metadata, or all sections.",
+    parameters: getOracleContentSchema,
+
+    async execute(_toolCallId, params: GetOracleContentParams, _signal, _onUpdate, ctx) {
+      const section = params.section ?? "all";
+
+      let record: StoredOracleRecord;
+      try {
+        record = await readOracleRecord(ctx.cwd, params.responseId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Stored Oracle result not found for responseId ${params.responseId}. ${message}`);
+      }
+
+      const sections = availableSections(record);
+      if (section !== "all" && !sections.includes(section)) {
+        throw new Error(
+          `Stored Oracle section \"${section}\" is not available for responseId ${params.responseId}. Available sections: ${sections.join(", ")}.`,
+        );
+      }
+
+      const contentText = await readOracleSection(ctx.cwd, params.responseId, section);
+      return {
+        content: [{ type: "text", text: contentText }],
+        details: {
+          responseId: record.metadata.id,
+          section,
+          availableSections: sections,
+          status: record.metadata.status,
+          storeDir: oracleStorePaths(ctx.cwd, record.metadata.id).responseDir,
+        },
+      };
+    },
+  });
+
   pi.registerTool({
     name: "oracle_consult",
     label: "Oracle Consult",
@@ -397,13 +578,22 @@ export default function piOracle(pi: ExtensionAPI) {
       const model = params.model?.trim() || DEFAULT_MODEL;
       const wait = params.wait ?? true;
       const previewRequested = params.dryRunMode !== undefined;
+      const normalizedFiles = normalizeFileInputs(params.files);
+      if (engine === "browser" && !wait) {
+        throw new Error(
+          "Oracle invocation failed. Detached browser mode is not supported by Oracle. Use wait: true or engine: \"api\".",
+        );
+      }
       let tempDir: string | undefined;
 
       try {
         const oracle = resolveOracleCommand();
+        const oracleHome = await ensureProjectOracleHome(ctx.cwd);
         tempDir = await mkdtemp(path.join(tmpdir(), "pi-oracle-"));
         const outputPath = path.join(tempDir, "oracle-output.md");
-        const args = [...oracle.argsPrefix, ...buildOracleArgs(params, outputPath)];
+        const oracleArgs = buildOracleArgs(params, outputPath);
+        const args = [oracle.cliPath, ...oracleArgs];
+        const execArgs = [oracleRunnerPath, oracleHome.homeDir, ...args];
 
         onUpdate?.({
           content: [
@@ -416,39 +606,75 @@ export default function piOracle(pi: ExtensionAPI) {
             command: oracle.command,
             args,
             cwd: ctx.cwd,
+            oracleHomeDir: oracleHome.homeDir,
           },
         });
 
-        const result = await pi.exec(oracle.command, args, { signal, cwd: ctx.cwd });
+        const result = await pi.exec(oracle.command, execArgs, { signal, cwd: ctx.cwd });
         const stdout = result.stdout ?? "";
         const stderr = result.stderr ?? "";
         const sessionId = extractSessionId(`${stdout}\n${stderr}`);
         const outputText = await readFile(outputPath, "utf8").catch(() => "");
         const cleanedLogs = stripAnsi(`${stdout}\n${stderr}`).trim();
 
-        const status = result.code !== 0
-            ? "failed"
-            : previewRequested
-              ? "dry-run"
-              : wait
+        const status: OracleRunStatus = result.code !== 0
+          ? "failed"
+          : previewRequested
+            ? "dry-run"
+            : wait
               ? "completed"
               : "background";
 
-        const bodyText =
+        const answerText = outputText.trim() || cleanedLogs || "(Oracle produced no textual output.)";
+        const logText = cleanedLogs || undefined;
+        const previewSource =
           status === "dry-run"
             ? cleanedLogs || "(Oracle produced no preview output.)"
-            : status === "failed"
-              ? cleanedLogs || outputText || "(Oracle exited without textual logs.)"
-              : status === "background"
-                ? cleanedLogs ||
-                  (sessionId
-                    ? `Oracle is running in the background. Reattach with: oracle session ${sessionId}`
-                    : "Oracle started in background mode without additional logs.")
-                : outputText || cleanedLogs || "(Oracle produced no textual output.)";
+            : status === "background"
+              ? cleanedLogs ||
+                (sessionId
+                  ? `Oracle is running in the background. Reattach with: ${buildOracleReattachCommand(sessionId, oracleHome.homeDir)}`
+                  : "Oracle started in background mode without additional logs.")
+              : status === "failed"
+                ? cleanedLogs || outputText || "(Oracle exited without textual logs.)"
+                : answerText;
+        const maxPreviewChars = previewRequested
+          ? MAX_INLINE_PREVIEW_CHARS_DRY_RUN
+          : MAX_INLINE_PREVIEW_CHARS;
+        const clipped = truncateText(previewSource.trim(), maxPreviewChars);
 
-        const clipped = truncateForContext(bodyText.trim());
-        const contentText = formatResultContent({
-          bodyText: clipped.text,
+        let persisted: PersistedOracleResult | undefined;
+        if (status !== "dry-run") {
+          persisted = await persistOracleResult({
+            cwd: ctx.cwd,
+            prompt: resolvedPrompt,
+            files: normalizedFiles,
+            wait,
+            engine,
+            model,
+            status,
+            sessionId,
+            exitCode: result.code,
+            killed: result.killed,
+            command: oracle.command,
+            args,
+            oracleHomeDir: oracleHome.homeDir,
+            answer: status === "completed" ? answerText : undefined,
+            logs: status === "completed" ? logText : previewSource.trim(),
+          });
+        }
+
+        if (status === "background" && persisted && sessionId) {
+          startOracleBackgroundMonitor(pi, {
+            cwd: ctx.cwd,
+            responseId: persisted.responseId,
+            sessionId,
+          });
+        }
+
+        const contentText = formatInlineResultContent({
+          responseId: persisted?.responseId,
+          previewText: clipped.text,
           sessionId,
           engine,
           model,
@@ -458,6 +684,7 @@ export default function piOracle(pi: ExtensionAPI) {
           exitCode: result.code,
           previewRequested,
           status,
+          storedSections: persisted?.storedSections,
         });
 
         return {
@@ -471,18 +698,21 @@ export default function piOracle(pi: ExtensionAPI) {
             model,
             wait,
             dryRunMode: params.dryRunMode,
-            stdout,
-            stderr,
-            fullAnswer: bodyText,
+            responseId: persisted?.responseId,
+            storeDir: persisted?.storeDir ?? (persisted ? oracleStorePaths(ctx.cwd, persisted.responseId).responseDir : undefined),
+            oracleHomeDir: oracleHome.homeDir,
+            storedSections: persisted?.storedSections,
             finalAnswerAvailable: status === "completed" || status === "dry-run",
-            reattachCommand: sessionId ? `oracle session ${sessionId}` : undefined,
+            reattachCommand: sessionId
+              ? buildOracleReattachCommand(sessionId, oracleHome.homeDir)
+              : undefined,
             previewRequested,
             truncatedInContent: clipped.truncated,
             exitCode: result.code,
             killed: result.killed,
             status,
+            error: status === "failed",
           },
-          isError: result.code !== 0,
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

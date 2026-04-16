@@ -15,7 +15,9 @@ Workflow:
   - `wait: true`
 - Pass the selected files through the `files` array. Do not attach the whole repository unless the user explicitly asked for that scope.
 - If the tool returns a preview or dry-run result, state clearly that Oracle did not perform a real external consultation and summarize only the preview metadata.
-- If the tool returns background startup logs or a reattach command, state clearly that no final Oracle answer is available yet and report how to reattach.
 - If the tool returns a failure, state clearly that the Oracle run failed, summarize the failure message, and do not treat the returned text as an Oracle assessment.
-- Otherwise summarize Oracle's answer, state any agreement or disagreement with your own assessment, and mention the Oracle session id when it is available.
+- If the tool returns `status: "completed"` with a `responseId`, call `get_oracle_content` with `section: "all"` before summarizing. Summarize the retrieved stored content rather than the compact inline preview.
+- If the tool returns `status: "background"`, state clearly that no final Oracle answer is available yet, report the `responseId` and any session or reattach information, and do not fabricate a summary.
+- If a follow-up message later reports that a background Oracle result is ready and gives a `responseId`, call `get_oracle_content` and summarize the stored content for the user.
+- When summarizing retrieved content, mention the `responseId` and the Oracle session id when it is available.
 - Because the user invoked `/oracle`, treat this as explicit permission to call Oracle.
