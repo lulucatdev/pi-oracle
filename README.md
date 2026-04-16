@@ -34,7 +34,7 @@ pi install git:github.com/lulucatdev/pi-oracle
 To pin a stable release:
 
 ```bash
-pi install git:github.com/lulucatdev/pi-oracle@v0.1.1
+pi install git:github.com/lulucatdev/pi-oracle@v0.1.2
 ```
 
 For local development from this working copy:
@@ -192,8 +192,8 @@ For future tagged releases:
 1. update `package.json` if the package version should change;
 2. run `npm run release:check`;
 3. commit the release-ready state;
-4. create and push a tag such as `v0.1.1`;
+4. create and push a tag such as `v0.1.2`;
 5. create the matching GitHub Release entry with `gh release create`;
-6. install or test the pinned tag with `pi install git:github.com/lulucatdev/pi-oracle@v0.1.1`.
+6. install or test the pinned tag with `pi install git:github.com/lulucatdev/pi-oracle@v0.1.2`.
 
 See `RELEASING.md` for the full command sequence.

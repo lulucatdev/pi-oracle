@@ -1,6 +1,6 @@
 {
   "name": "pi-oracle",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "pi package that exposes Oracle browser consultations through a custom tool and /oracle workflow.",
   "type": "module",
   "keywords": ["pi-package", "pi", "oracle"],
