@@ -156,6 +156,8 @@ If a browser run fails with `Unable to locate the ChatGPT model selector button`
 
 For a one-off workaround when the active ChatGPT model is already acceptable, call `oracle_consult` with `browserModelStrategy: "ignore"` to skip the model picker entirely. That avoids selector automation, but it also means ChatGPT keeps whatever model is currently selected in the browser.
 
+If a git-installed pi package is updated and its local `node_modules` directory is missing, the wrapper falls back to `npm exec --package @steipete/oracle@latest -- oracle` so the Oracle CLI can still be resolved from npm.
+
 ## Validation
 
 Useful local checks:

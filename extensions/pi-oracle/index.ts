@@ -203,7 +203,7 @@ type OracleRunStatus = StoredOracleStatus | "dry-run";
 
 interface OracleCommand {
   command: string;
-  cliPath: string;
+  baseArgs: string[];
   source: string;
 }
 
@@ -218,14 +218,32 @@ function resolveOracleCommand(): OracleCommand {
     const bundledCli = oracleRequire.resolve("@steipete/oracle/dist/bin/oracle-cli.js");
     return {
       command: process.execPath,
-      cliPath: bundledCli,
+      baseArgs: [bundledCli],
       source: "package dependency",
     };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Bundled @steipete/oracle CLI not found. Reinstall the package dependencies before using oracle_consult. (${message})`,
-    );
+  } catch {
+    const npmExecPath = process.env.npm_execpath?.trim();
+    if (npmExecPath) {
+      return {
+        command: process.execPath,
+        baseArgs: [
+          npmExecPath,
+          "exec",
+          "--yes",
+          "--package",
+          "@steipete/oracle@latest",
+          "--",
+          "oracle",
+        ],
+        source: "npm exec fallback",
+      };
+    }
+
+    return {
+      command: "npm",
+      baseArgs: ["exec", "--yes", "--package", "@steipete/oracle@latest", "--", "oracle"],
+      source: "npm exec fallback",
+    };
   }
 }
 
@@ -592,7 +610,7 @@ export default function piOracle(pi: ExtensionAPI) {
         tempDir = await mkdtemp(path.join(tmpdir(), "pi-oracle-"));
         const outputPath = path.join(tempDir, "oracle-output.md");
         const oracleArgs = buildOracleArgs(params, outputPath);
-        const args = [oracle.cliPath, ...oracleArgs];
+        const args = [...oracle.baseArgs, ...oracleArgs];
         const execArgs = [oracleRunnerPath, oracleHome.homeDir, ...args];
 
         onUpdate?.({

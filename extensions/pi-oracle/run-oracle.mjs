@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 
-const [, , oracleHomeDir, oracleCliPath, ...oracleArgs] = process.argv;
+const [, , oracleHomeDir, command, ...commandArgs] = process.argv;
 
-if (!oracleHomeDir || !oracleCliPath) {
-  console.error("Usage: run-oracle.mjs <oracle-home-dir> <oracle-cli-path> [oracle args...]");
+if (!oracleHomeDir || !command) {
+  console.error("Usage: run-oracle.mjs <oracle-home-dir> <command> [args...]");
   process.exit(1);
 }
 
-const child = spawn(process.execPath, [oracleCliPath, ...oracleArgs], {
+const child = spawn(command, commandArgs, {
   cwd: process.cwd(),
   env: {
     ...process.env,
+    npm_config_registry: process.env.npm_config_registry || "https://registry.npmjs.org/",
     ORACLE_HOME_DIR: oracleHomeDir,
   },
   stdio: ["inherit", "pipe", "pipe"],
