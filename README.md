@@ -150,6 +150,12 @@ If cookie reuse still fails, Oracle also supports manual-login mode. Either ask 
 
 See the upstream Oracle docs for more advanced browser configuration, remote Chrome, and API-mode usage.
 
+### Model selector failures
+
+If a browser run fails with `Unable to locate the ChatGPT model selector button`, the wrapper reached Oracle successfully, but upstream browser automation could not find ChatGPT's current model-picker DOM. This usually means ChatGPT changed its UI and the bundled `@steipete/oracle` dependency needs to be updated. `pi-oracle` depends on `@steipete/oracle@>=0.11.0`, whose browser selectors include the newer composer pill model control, without pinning future upstream releases.
+
+For a one-off workaround when the active ChatGPT model is already acceptable, call `oracle_consult` with `browserModelStrategy: "ignore"` to skip the model picker entirely. That avoids selector automation, but it also means ChatGPT keeps whatever model is currently selected in the browser.
+
 ## Validation
 
 Useful local checks:

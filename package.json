@@ -15,7 +15,7 @@
     "release:check": "npm run typecheck && npm run pack:check && npm run validate:wrapper:error && npm run validate:wrapper:preview && npm run validate:wrapper:retrieve && npm run validate:wrapper:background"
   },
   "dependencies": {
-    "@steipete/oracle": "^0.9.0"
+    "@steipete/oracle": ">=0.11.0"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",
