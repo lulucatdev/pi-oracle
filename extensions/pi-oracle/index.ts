@@ -202,7 +202,7 @@ type GetOracleContentParams = Static<typeof getOracleContentSchema>;
 type OracleRunStatus = StoredOracleStatus | "dry-run";
 
 interface OracleCommand {
-  command: string;
+  childCommand: string;
   baseArgs: string[];
   source: string;
 }
@@ -217,7 +217,7 @@ function resolveOracleCommand(): OracleCommand {
   try {
     const bundledCli = oracleRequire.resolve("@steipete/oracle/dist/bin/oracle-cli.js");
     return {
-      command: process.execPath,
+      childCommand: process.execPath,
       baseArgs: [bundledCli],
       source: "package dependency",
     };
@@ -225,7 +225,7 @@ function resolveOracleCommand(): OracleCommand {
     const npmExecPath = process.env.npm_execpath?.trim();
     if (npmExecPath) {
       return {
-        command: process.execPath,
+        childCommand: process.execPath,
         baseArgs: [
           npmExecPath,
           "exec",
@@ -240,7 +240,7 @@ function resolveOracleCommand(): OracleCommand {
     }
 
     return {
-      command: "npm",
+      childCommand: "npm",
       baseArgs: ["exec", "--yes", "--package", "@steipete/oracle@latest", "--", "oracle"],
       source: "npm exec fallback",
     };
@@ -610,7 +610,7 @@ export default function piOracle(pi: ExtensionAPI) {
         tempDir = await mkdtemp(path.join(tmpdir(), "pi-oracle-"));
         const outputPath = path.join(tempDir, "oracle-output.md");
         const oracleArgs = buildOracleArgs(params, outputPath);
-        const args = [...oracle.baseArgs, ...oracleArgs];
+        const args = [oracle.childCommand, ...oracle.baseArgs, ...oracleArgs];
         const execArgs = [oracleRunnerPath, oracleHome.homeDir, ...args];
 
         onUpdate?.({
@@ -621,14 +621,15 @@ export default function piOracle(pi: ExtensionAPI) {
             },
           ],
           details: {
-            command: oracle.command,
+            command: process.execPath,
             args,
+            childCommand: oracle.childCommand,
             cwd: ctx.cwd,
             oracleHomeDir: oracleHome.homeDir,
           },
         });
 
-        const result = await pi.exec(oracle.command, execArgs, { signal, cwd: ctx.cwd });
+        const result = await pi.exec(process.execPath, execArgs, { signal, cwd: ctx.cwd });
         const stdout = result.stdout ?? "";
         const stderr = result.stderr ?? "";
         const sessionId = extractSessionId(`${stdout}\n${stderr}`);
@@ -674,7 +675,7 @@ export default function piOracle(pi: ExtensionAPI) {
             sessionId,
             exitCode: result.code,
             killed: result.killed,
-            command: oracle.command,
+            command: process.execPath,
             args,
             oracleHomeDir: oracleHome.homeDir,
             answer: status === "completed" ? answerText : undefined,
@@ -708,8 +709,9 @@ export default function piOracle(pi: ExtensionAPI) {
         return {
           content: [{ type: "text", text: contentText }],
           details: {
-            command: oracle.command,
+            command: process.execPath,
             args,
+            childCommand: oracle.childCommand,
             cwd: ctx.cwd,
             sessionId,
             engine,
