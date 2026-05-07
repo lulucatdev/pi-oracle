@@ -55,7 +55,7 @@ function parseJsonLines(stdout) {
 
 const guardPrompt = [
   'Call oracle_consult exactly once with prompt "validate background guard",',
-  'files ["README.md"], engine "browser", model "gpt-5.4-pro", wait false.',
+  'files ["README.md"], engine "browser", model "gpt-5.5-pro", wait false.',
   'Then stop.',
 ].join(" ");
 const guardEvents = parseJsonLines(runPiJson(guardPrompt));
@@ -110,7 +110,7 @@ try {
     createdAt: "2026-04-16T04:00:00.000Z",
     updatedAt: "2026-04-16T04:00:00.000Z",
     engine: "api",
-    model: "gpt-5.4-pro",
+    model: "gpt-5.5-pro",
     prompt: "Synthetic background validation",
     files: ["README.md"],
     cwd: repoRoot,

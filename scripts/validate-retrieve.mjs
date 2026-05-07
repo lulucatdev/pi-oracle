@@ -54,7 +54,7 @@ function parseJsonLines(stdout) {
 const prompt = [
   'First call oracle_consult exactly once with prompt "validate retrieve",',
   'files ["/definitely/missing/validate-retrieve.txt"], engine "browser",',
-  'model "gpt-5.4-pro", wait true.',
+  'model "gpt-5.5-pro", wait true.',
   'If that tool call fails and the error text includes a Response ID,',
   'call get_oracle_content exactly once with that responseId and section "logs".',
   'Then stop.',

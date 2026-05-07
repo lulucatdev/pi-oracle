@@ -11,7 +11,7 @@ Workflow:
 - Build a stand-alone Oracle prompt that explains the task, relevant constraints, and what the attached files contain.
 - Call `oracle_consult` once with these defaults unless the user asked for something different:
   - `engine: "browser"`
-  - `model: "gpt-5.4-pro"`
+  - `model: "gpt-5.5-pro"`
   - `wait: true`
 - Pass the selected files through the `files` array. Do not attach the whole repository unless the user explicitly asked for that scope.
 - If the tool returns a preview or dry-run result, state clearly that Oracle did not perform a real external consultation and summarize only the preview metadata.

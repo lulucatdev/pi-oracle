@@ -10,12 +10,12 @@
 The package is designed for cases where a normal pi answer is not enough and an external second-model review is useful. By default it routes Oracle through browser mode with:
 
 - `engine: browser`
-- `model: gpt-5.4-pro`
+- `model: gpt-5.5-pro`
 - `wait: true`
 - a `5s` browser cookie-sync grace period before Oracle gives up on Chrome session reuse
 - Oracle's recommended browser auto-reattach settings for long Pro responses
 
-That matches a ChatGPT browser workflow and avoids OpenAI API keys when your browser login already has access to GPT-5.4 Pro. These are wrapper-level defaults for pi; if you need a different value for a specific run, override it through the structured tool parameters rather than Oracle CLI flags.
+That matches a ChatGPT browser workflow and avoids OpenAI API keys when your browser login already has access to GPT-5.5 Pro. These are wrapper-level defaults for pi; if you need a different value for a specific run, override it through the structured tool parameters rather than Oracle CLI flags.
 
 ## Install and load
 
@@ -74,7 +74,7 @@ The extension registers `oracle_consult` with structured parameters. The most im
 
 - `prompt`: the Oracle task or question;
 - `files`: attached files, directories, or globs;
-- `model`: optional override, default `gpt-5.4-pro`;
+- `model`: optional override, default `gpt-5.5-pro`;
 - `engine`: optional override, default `browser`;
 - `wait`: optional override, default `true`; when set to `false`, the tool starts Oracle in background mode for upstream-supported detached runs, returns session metadata plus startup logs immediately, and later emits a follow-up message when the stored result becomes complete;
 - `dryRunMode`: `summary`, `json`, or `full` for non-spending previews; when this is set, the tool returns preview metadata rather than a real Oracle answer;
@@ -126,7 +126,7 @@ Oracle's browser mode expects a Chromium-based browser profile it can reuse for 
 ```json5
 {
   engine: "browser",
-  model: "gpt-5.4-pro",
+  model: "gpt-5.5-pro",
   browser: {
     chromePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     chromeCookiePath: null,
@@ -182,7 +182,7 @@ If ChatGPT is signed in locally, live attached browser validation is also possib
 
 ```bash
 pi --mode json -ne -ns -np -e ./extensions/pi-oracle/index.ts \
-  -p 'Call oracle_consult exactly once with prompt "Reply with exactly OK.", files ["README.md"], engine "browser", model "gpt-5.4-pro", wait true. Then stop.' \
+  -p 'Call oracle_consult exactly once with prompt "Reply with exactly OK.", files ["README.md"], engine "browser", model "gpt-5.5-pro", wait true. Then stop.' \
   --no-session --thinking off
 
 pi -ne -ns -np -e ./extensions/pi-oracle/index.ts \

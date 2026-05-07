@@ -23,7 +23,7 @@ import {
 } from "./store.js";
 
 const DEFAULT_ENGINE = "browser" as const;
-const DEFAULT_MODEL = "gpt-5.4-pro";
+const DEFAULT_MODEL = "gpt-5.5-pro";
 const DEFAULT_BROWSER_COOKIE_WAIT = "5s";
 const DEFAULT_AUTO_REATTACH_DELAY = "5s";
 const DEFAULT_AUTO_REATTACH_INTERVAL = "3s";
